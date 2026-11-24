@@ -47,10 +47,10 @@ jobs:
           # (o usuário RDP herda isso no primeiro login)
           Copy-UserInternationalSettingsToSystem -WelcomeScreen $true -NewUser $true
 
-      - name: Criar usuário RDP
+      - name: RDP
         shell: pwsh
         env:
-          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+          RDP_PASSWORD: ${{ secrets.TACIANA8 }}
         run: |
           if (-not $env:RDP_PASSWORD) { Write-Error "Defina o secret RDP_PASSWORD"; exit 1 }
           $secure = ConvertTo-SecureString $env:RDP_PASSWORD -AsPlainText -Force
