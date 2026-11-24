@@ -29,6 +29,63 @@ jobs:
           # (Optional) Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
 
+      - name: Configurar idioma pt-BR
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          try {
+            Install-Language -Language pt-BR -ErrorAction Stop
+          } catch {
+            Write-Warning "Falha ao instalar o pacote de idioma: $_"
+          }
+
+          Set-WinUILanguageOverride -Language pt-BR
+          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList pt-BR) -Force
+          Set-WinDefaultInputMethodOverride -InputTip "0416:00010416"
+          Set-Culture pt-BR
+          Set-WinHomeLocation -GeoId 32
+          Set-WinSystemLocale pt-BR
+          Set-TimeZone -Id "E. South America Standard Time"
+          Set-SystemPreferredUILanguage pt-BR -ErrorAction SilentlyContinue
+
+          # Copia para a tela de login e para novos usuários (o usuário RDP herda)
+          Copy-UserInternationalSettingsToSystem -WelcomeScreen $true -NewUser $true
+
+      - name: Habilitar som
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          # Serviços de áudio
+          Set-Service -Name AudioEndpointBuilder -StartupType Automatic
+          Set-Service -Name Audiosrv -StartupType Automatic
+          Start-Service AudioEndpointBuilder
+          Start-Service Audiosrv
+
+          # Permite redirecionar o áudio para o cliente RDP
+          $ts = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
+          New-Item -Path $ts -Force | Out-Null
+          Set-ItemProperty -Path $ts -Name "fDisableAudioCapture" -Value 0 -Type DWord
+          Set-ItemProperty -Path $ts -Name "AudioRedirectionMode" -Value 0 -Type DWord
+
+          # Instala dispositivo de áudio virtual (VB-CABLE), pois o runner não tem placa de som
+          $zip = "$env:TEMP\vbcable.zip"
+          $dir = "$env:TEMP\vbcable"
+          Invoke-WebRequest -Uri "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack43.zip" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+
+          # Confia no certificado do driver para instalação silenciosa
+          $cat = Get-ChildItem $dir -Filter "vbaudio_cable64_win10.cat" -Recurse | Select-Object -First 1
+          $cert = (Get-AuthenticodeSignature $cat.FullName).SignerCertificate
+          $cer = "$env:TEMP\vbaudio.cer"
+          [IO.File]::WriteAllBytes($cer, $cert.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+          Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
+
+          $setup = Get-ChildItem $dir -Filter "VBCABLE_Setup_x64.exe" -Recurse | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList "-i","-h" -Wait
+
+          Restart-Service -Name Audiosrv -Force
+          Restart-Service -Name TermService -Force
+
       - name: Create RDP User with Secure Password
         run: |
           Add-Type -AssemblyName System.Security
