@@ -1,0 +1,94 @@
+name: RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp:
+    runs-on: windows-2022
+    timeout-minutes: 360
+
+    steps:
+      - name: Configurar RDP
+        shell: pwsh
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+            -Name fDenyTSConnections -Value 0 -Force
+
+          # Libera a porta 3389 somente para a rede do Tailscale
+          Remove-NetFirewallRule -DisplayName "RDP-Tailscale" -ErrorAction SilentlyContinue
+          New-NetFirewallRule -DisplayName "RDP-Tailscale" -Direction Inbound `
+            -Protocol TCP -LocalPort 3389 -RemoteAddress 100.64.0.0/10 -Action Allow
+
+          Restart-Service -Name TermService -Force
+
+      - name: Configurar idioma pt-BR
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          # Instala o pacote de idioma (pode levar alguns minutos)
+          try {
+            Install-Language -Language pt-BR -ErrorAction Stop
+          } catch {
+            Write-Warning "Falha ao instalar o pacote de idioma: $_"
+          }
+
+          # Idioma, região, fuso horário e teclado ABNT2
+          Set-WinUILanguageOverride -Language pt-BR
+          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList pt-BR) -Force
+          Set-WinDefaultInputMethodOverride -InputTip "0416:00010416"
+          Set-Culture pt-BR
+          Set-WinHomeLocation -GeoId 32
+          Set-WinSystemLocale pt-BR
+          Set-TimeZone -Id "E. South America Standard Time"
+          Set-SystemPreferredUILanguage pt-BR -ErrorAction SilentlyContinue
+
+          # Copia as configurações para a tela de login e para novos usuários
+          # (o usuário RDP herda isso no primeiro login)
+          Copy-UserInternationalSettingsToSystem -WelcomeScreen $true -NewUser $true
+
+      - name: Criar usuário RDP
+        shell: pwsh
+        env:
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+        run: |
+          if (-not $env:RDP_PASSWORD) { Write-Error "Defina o secret RDP_PASSWORD"; exit 1 }
+          $secure = ConvertTo-SecureString $env:RDP_PASSWORD -AsPlainText -Force
+          New-LocalUser -Name "RDP" -Password $secure -AccountNeverExpires
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
+          # Remova a linha abaixo se não precisar de administrador
+          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
+
+      - name: Instalar Tailscale
+        shell: pwsh
+        run: |
+          $installer = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile $installer
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$installer`"", "/quiet", "/norestart" -Wait
+          Remove-Item $installer -Force
+
+      - name: Conectar ao Tailscale
+        shell: pwsh
+        env:
+          TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          & $ts up --authkey="$env:TS_AUTHKEY" --hostname="gh-win-$env:GITHUB_RUN_ID"
+
+          $ip = $null
+          for ($i = 0; $i -lt 10 -and -not $ip; $i++) {
+            $ip = (& $ts ip -4 2>$null | Select-Object -First 1)
+            if (-not $ip) { Start-Sleep -Seconds 5 }
+          }
+          if (-not $ip) { Write-Error "IP do Tailscale não atribuído"; exit 1 }
+          "TAILSCALE_IP=$ip" >> $env:GITHUB_ENV
+
+      - name: Manter ativo
+        shell: pwsh
+        run: |
+          Write-Host "=== ACESSO RDP ==="
+          Write-Host "Endereço: $env:TAILSCALE_IP"
+          Write-Host "Usuário: RDP"
+          Write-Host "Senha: a do secret RDP_PASSWORD"
+          Write-Host "=================="
+          while ($true) { Start-Sleep -Seconds 300 }
