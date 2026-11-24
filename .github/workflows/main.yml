@@ -8,6 +8,10 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 360
 
+    env:
+      RDP_USER: RDP
+      RDP_PASSWORD: 'Kp7#vR2mXq9!Tz4w'
+
     steps:
       - name: Configurar RDP
         shell: pwsh
@@ -26,14 +30,12 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
-          # Instala o pacote de idioma (pode levar alguns minutos)
           try {
             Install-Language -Language pt-BR -ErrorAction Stop
           } catch {
             Write-Warning "Falha ao instalar o pacote de idioma: $_"
           }
 
-          # Idioma, região, fuso horário e teclado ABNT2
           Set-WinUILanguageOverride -Language pt-BR
           Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList pt-BR) -Force
           Set-WinDefaultInputMethodOverride -InputTip "0416:00010416"
@@ -43,21 +45,15 @@ jobs:
           Set-TimeZone -Id "E. South America Standard Time"
           Set-SystemPreferredUILanguage pt-BR -ErrorAction SilentlyContinue
 
-          # Copia as configurações para a tela de login e para novos usuários
-          # (o usuário RDP herda isso no primeiro login)
           Copy-UserInternationalSettingsToSystem -WelcomeScreen $true -NewUser $true
 
-      - name: RDP
+      - name: Criar usuário RDP
         shell: pwsh
-        env:
-          RDP_PASSWORD: ${{ secrets.TACIANA8 }}
         run: |
-          if (-not $env:RDP_PASSWORD) { Write-Error "Defina o secret RDP_PASSWORD"; exit 1 }
           $secure = ConvertTo-SecureString $env:RDP_PASSWORD -AsPlainText -Force
-          New-LocalUser -Name "RDP" -Password $secure -AccountNeverExpires
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
-          # Remova a linha abaixo se não precisar de administrador
-          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
+          New-LocalUser -Name $env:RDP_USER -Password $secure -AccountNeverExpires -PasswordNeverExpires
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $env:RDP_USER
+          Add-LocalGroupMember -Group "Administrators" -Member $env:RDP_USER
 
       - name: Instalar Tailscale
         shell: pwsh
@@ -72,8 +68,9 @@ jobs:
         env:
           TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
+          if (-not $env:TS_AUTHKEY) { Write-Error "Defina o secret TAILSCALE_AUTH_KEY"; exit 1 }
           $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
-          & $ts up --authkey="$env:TS_AUTHKEY" --hostname="gh-win-$env:GITHUB_RUN_ID"
+          & $ts up --authkey="$env:TS_AUTHKEY" --hostname="gh-win-$env:GITHUB_RUN_ID" --unattended
 
           $ip = $null
           for ($i = 0; $i -lt 10 -and -not $ip; $i++) {
@@ -88,7 +85,11 @@ jobs:
         run: |
           Write-Host "=== ACESSO RDP ==="
           Write-Host "Endereço: $env:TAILSCALE_IP"
-          Write-Host "Usuário: RDP"
-          Write-Host "Senha: a do secret RDP_PASSWORD"
+          Write-Host "Usuário: $env:RDP_USER"
+          Write-Host "Senha: $env:RDP_PASSWORD"
           Write-Host "=================="
-          while ($true) { Start-Sleep -Seconds 300 }
+          try {
+            while ($true) { Start-Sleep -Seconds 300 }
+          } finally {
+            & "$env:ProgramFiles\Tailscale\tailscale.exe" logout
+          }
