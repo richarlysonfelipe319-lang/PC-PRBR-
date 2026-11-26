@@ -29,28 +29,6 @@ jobs:
           # (Optional) Restart the Remote Desktop service to ensure changes take effect
           Restart-Service -Name TermService -Force
 
-      - name: Configurar idioma pt-BR
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          try {
-            Install-Language -Language pt-BR -ErrorAction Stop
-          } catch {
-            Write-Warning "Falha ao instalar o pacote de idioma: $_"
-          }
-
-          Set-WinUILanguageOverride -Language pt-BR
-          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList pt-BR) -Force
-          Set-WinDefaultInputMethodOverride -InputTip "0416:00010416"
-          Set-Culture pt-BR
-          Set-WinHomeLocation -GeoId 32
-          Set-WinSystemLocale pt-BR
-          Set-TimeZone -Id "E. South America Standard Time"
-          Set-SystemPreferredUILanguage pt-BR -ErrorAction SilentlyContinue
-
-          # Copia para a tela de login e para novos usuários (o usuário RDP herda)
-          Copy-UserInternationalSettingsToSystem -WelcomeScreen $true -NewUser $true
-
       - name: Habilitar som
         shell: pwsh
         continue-on-error: true
@@ -92,7 +70,7 @@ jobs:
         run: |
           # O Roblox instala por usuário, então deixo o instalador oficial
           # na área de trabalho de todos os usuários (o usuário RDP instala no 1º login)
-          $dest = "C:\Users\Public\Desktop\Instalar Roblox.exe"
+          $dest = "C:\Users\Public\Desktop\Install Roblox.exe"
           Invoke-WebRequest -Uri "https://setup.rbxcdn.com/RobloxPlayerInstaller.exe" -OutFile $dest
           Write-Host "Instalador do Roblox salvo em $dest"
 
