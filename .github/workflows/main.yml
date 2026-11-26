@@ -5,7 +5,7 @@ on:
 
 jobs:
   secure-rdp:
-    runs-on: windows-2022
+    runs-on: windows-2025
     timeout-minutes: 3600
 
     steps:
@@ -85,6 +85,16 @@ jobs:
 
           Restart-Service -Name Audiosrv -Force
           Restart-Service -Name TermService -Force
+
+      - name: Preparar Roblox
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          # O Roblox instala por usuário, então deixo o instalador oficial
+          # na área de trabalho de todos os usuários (o usuário RDP instala no 1º login)
+          $dest = "C:\Users\Public\Desktop\Instalar Roblox.exe"
+          Invoke-WebRequest -Uri "https://setup.rbxcdn.com/RobloxPlayerInstaller.exe" -OutFile $dest
+          Write-Host "Instalador do Roblox salvo em $dest"
 
       - name: Create RDP User with Secure Password
         run: |
